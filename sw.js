@@ -1,5 +1,5 @@
 /* Service worker: app shell cache-first, data.json network-first (falls back to cache offline). */
-const CACHE = 'pmw-v1';
+const CACHE = 'pmw-v2';
 const SHELL = ['./', './index.html', './core.js', './screens.js', './app.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png',
   'https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js',

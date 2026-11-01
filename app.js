@@ -9,6 +9,17 @@ const PAGES = { overview: Overview, decision: Decision, creative: Creative, expe
 const DB_KEY = 'pmw.db.v1';
 const pageFromHash = () => { const h = (location.hash || '').slice(1); return PAGES[h] ? h : 'overview'; };
 
+class Boundary extends React.Component {
+  constructor(p) { super(p); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err, info) { try { console.error('[workspace]', err, info && info.componentStack); LS.set('pmw.lastError', { msg: String(err && err.message || err), stack: String(err && err.stack || '').slice(0, 1500), comp: String(info && info.componentStack || '').slice(0, 800), at: new Date().toISOString() }); } catch (e) {} }
+  render() {
+    if (!this.state.err) return this.props.children;
+    const e = this.state.err; const reset = () => { this.setState({ err: null }); if (this.props.onReset) this.props.onReset(); };
+    const box = html`<div className="note bad" style=${{ display: 'flex', flexDirection: 'column', gap: 8 }}><b>Something went wrong on this screen.</b><div className="sm">The rest of the app still works. Send a screenshot of this box so it can be fixed.</div><pre className="mono" style=${{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 11.5, maxHeight: 180, overflow: 'auto' }}>${String(e && e.message || e)}\n${String(e && e.stack || '').split('\n').slice(0, 4).join('\n')}</pre><div className="row"><button className="btn pri" onClick=${reset}>${this.props.drawer ? 'Close panel' : 'Try again'}</button>${this.props.drawer ? null : html`<button className="btn" onClick=${() => { location.hash = 'overview'; reset(); }}>Go to Overview</button>`}</div></div>`;
+    return this.props.drawer ? html`<${Fragment}><div className="scrim" onClick=${reset}></div><aside className="drawer" role="dialog" aria-label="Error"><div className="bd">${box}</div></aside></${Fragment}>` : html`<div className="page">${box}</div>`;
+  }
+}
 function App({ shipped }) {
   const [db, setDbRaw] = useState(() => { const local = LS.get(DB_KEY, null); return local && local.schema_version ? local : shipped; });
   const [localCopy, setLocalCopy] = useState(() => !!LS.get(DB_KEY, null));
@@ -28,6 +39,7 @@ function App({ shipped }) {
   useEffect(() => { const f = () => { setPage(pageFromHash()); setParams({}); }; window.addEventListener('hashchange', f); return () => window.removeEventListener('hashchange', f); }, []);
   useEffect(() => { if (db.accounts && acct !== 'all' && !db.accounts.some(a => a.id === acct)) setAcct('all'); }, [db]);
   const M = useMemo(() => buildModel(db), [db]);
+  if (!db.rules) db.rules = { ...DEFAULT_RULES }; ['experiments', 'decisions', 'imports', 'watchlist'].forEach(k => { if (!Array.isArray(db[k])) db[k] = []; }); if (!db.targets) db.targets = {}; if (!db.workspace) db.workspace = { name: 'Performance Workspace', owner: 'User', default_attribution: '7d_click_1d_view' };
   const W = useMemo(() => windows(M, range), [M, range]);
   const nav = useCallback((p, opts = {}) => { if (opts.acct) setAcct(opts.acct); if (p) { setPage(p); setParams(opts); try { if (location.hash !== '#' + p) history.replaceState(null, '', '#' + p); } catch (e) {} } setDrawer(null); setMob(false); const w = document.querySelector('.work'); if (w && p) w.scrollTop = 0; }, []);
   const openModal = (m) => setModal(m);
@@ -64,13 +76,13 @@ function App({ shipped }) {
             <button className="it" disabled style=${{ opacity: .5, cursor: 'not-allowed' }} title="Sign-in arrives with the Supabase build">Sign out (not in prototype)</button>
           </${Dropdown}>
         </header>
-        <main className="work" id="main"><${Page} params=${params} key=${page} /></main>
+        <main className="work" id="main"><${Boundary} key=${page}><${Page} params=${params} /></${Boundary}></main>
       </div>
     </div>
-    ${D_ ? html`<${D_} id=${drawer.id} key=${drawer.type + drawer.id} onClose=${() => setDrawer(null)} />` : null}
-    ${modal && modal.type === 'experiment' ? html`<${ExperimentWizard} prefill=${modal.prefill} onClose=${() => setModal(null)} />` : null}
+    ${D_ ? html`<${Boundary} drawer key=${drawer.type + drawer.id} onReset=${() => setDrawer(null)}><${D_} id=${drawer.id} onClose=${() => setDrawer(null)} /></${Boundary}>` : null}
+    <${Boundary} drawer key=${modal ? modal.type : 'none'} onReset=${() => setModal(null)}>${modal && modal.type === 'experiment' ? html`<${ExperimentWizard} prefill=${modal.prefill} onClose=${() => setModal(null)} />` : null}
     ${modal && modal.type === 'decision' ? html`<${DecisionForm} prefill=${modal.prefill} onClose=${() => setModal(null)} />` : null}
-    ${modal && modal.type === 'watch' ? html`<${WatchModal} id=${modal.campaign_id} onClose=${() => setModal(null)} />` : null}
+    ${modal && modal.type === 'watch' ? html`<${WatchModal} id=${modal.campaign_id} onClose=${() => setModal(null)} />` : null}</${Boundary}>
     ${toastMsg ? html`<div className="toast" role="status">${toastMsg}</div>` : null}
   </${Ctx.Provider}>`;
 }
@@ -93,5 +105,5 @@ function Boot() {
   if (state.s === 'error') return html`<div className="boot"><div style=${{ maxWidth: 420, display: 'flex', flexDirection: 'column', gap: 10 }}><b>Could not load data.json</b><div className="muted sm">${state.e}. Keep data.json next to index.html, or open a database file now.</div><div className="row"><button className="btn pri" onClick=${load}>Try again</button><label className="btn">Open data.json<input type="file" accept=".json" hidden onChange=${e => { const f = e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { try { setState({ s: 'ready', db: JSON.parse(rd.result) }); } catch (err) { setState({ s: 'error', e: 'Invalid JSON' }); } }; rd.readAsText(f); }} /></label></div></div></div>`;
   return html`<${App} shipped=${state.db} />`;
 }
-ReactDOM.createRoot(document.getElementById('root')).render(html`<${Boot} />`);
+ReactDOM.createRoot(document.getElementById("root")).render(html`<${Boundary}><${Boot} /></${Boundary}>`);
 if ('serviceWorker' in navigator && !FRAMED) { window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {})); }

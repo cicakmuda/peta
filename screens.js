@@ -284,7 +284,7 @@ function ExperimentDrawer({ id, onClose }) {
   const metricsShown = [e.primary_kpi, ...(e.guardrails || [])].filter(x => k[x]);
   const f = (key) => key === 'roas' ? fmt.x : ['cpa', 'aov', 'cpm'].includes(key) ? fmt.idr : key === 'purchases' ? fmt.int : fmt.pct;
   return html`<${Drawer} wide title=${e.name} sub=${html`${accName(M, e.account_id)} · ${entName(M, 'campaign', e.campaign_id)} · ${fmt.dateY(e.start)} – ${fmt.dateY(e.end)}`} onClose=${onClose} footer=${html`<button className="btn pri" onClick=${save}>Save evaluation</button><button className="btn ghost" onClick=${onClose}>Close</button>`}>
-    <div className="row"><${Pill} cls=${EXP_ST[e.status]}>${e.status}</${Pill}><span className="sm muted">Variable: ${e.variable} · Primary KPI: ${e.primary_kpi}</span></div>
+    <div className="row"><${Pill} cls=${(EXP_ST[e.status] || 'p-mute')}>${e.status}</${Pill}><span className="sm muted">Variable: ${e.variable} · Primary KPI: ${e.primary_kpi}</span></div>
     <dl className="kv"><dt>Research question</dt><dd>${e.question}</dd><dt>Hypothesis</dt><dd>${e.hypothesis}</dd><dt>Control</dt><dd>${em ? em.c.name : e.control}</dd><dt>Variants</dt><dd>${em ? em.v.map(v => v.name).join(', ') : (e.variants || []).join(', ')}</dd><dt>Guardrails</dt><dd>${(e.guardrails || []).join(', ') || '—'}</dd></dl>
     <${Panel} title="Performance comparison" sub=${em ? `${fmt.date(e.start)} – ${fmt.date(em.end)}` : null} bodyless>
       ${em && metricsShown.length ? html`<div className="tw"><table className="t"><thead><tr><th>Metric</th><th className="n">Control</th>${em.v.map((v, i) => html`<th key=${i} className="n">Variant ${i + 1}</th><th key=${'d' + i} className="n">Δ</th>`)}</tr></thead><tbody>
@@ -344,7 +344,7 @@ function Experiments() {
   const cols = [
     { key: 'name', label: 'Experiment', lock: true, search: true, titled: true, render: e => html`<button className="link" onClick=${() => setDrawer({ type: 'experiment', id: e.id })}>${e.name}</button>` },
     { key: 'acc', label: 'Account', get: e => accName(M, e.account_id) }, { key: 'hypothesis', label: 'Hypothesis', search: true, titled: true },
-    { key: 'variable', label: 'Variable', search: true }, { key: 'start', label: 'Start', f: fmt.dateY }, { key: 'status', label: 'Status', render: e => html`<${Pill} cls=${EXP_ST[e.status]}>${e.status}</${Pill}>` },
+    { key: 'variable', label: 'Variable', search: true }, { key: 'start', label: 'Start', f: fmt.dateY }, { key: 'status', label: 'Status', render: e => html`<${Pill} cls=${(EXP_ST[e.status] || 'p-mute')}>${e.status}</${Pill}>` },
     { key: 'primary_kpi', label: 'Primary KPI' }, { key: 'result', label: 'Result', render: e => e.result || html`<span className="muted">—</span>` },
   ];
   return html`<div className="page"><${PageHead} title="Experiment Tracker" q="What are we testing, and what did we learn?" actions=${html`<button className="btn pri" onClick=${() => openModal({ type: 'experiment' })}>New experiment</button>`} />
@@ -483,7 +483,7 @@ function DecisionDrawer({ id, onClose }) {
   const perDay = (m, n) => n ? { spend: m.spend / n, purchases: m.purchases / n } : {};
   return html`<${Drawer} title=${d.action + ': ' + entName(M, d.level, d.entity_id)} sub=${html`${fmt.dt(d.ts)} · ${accName(M, d.account_id)} · ${d.level}`} onClose=${onClose}
     footer=${html`<span className="sm muted" style=${{ alignSelf: 'center' }}>Mark outcome:</span>${Object.keys(DST).map(s => html`<button key=${s} className=${cx('btn sm', d.status === s && 'pri')} onClick=${() => setStatus(s)}>${s}</button>`)}`}>
-    <div className="row"><${Pill} cls=${DST[d.status][0]}>${d.status}</${Pill}><span className="sm muted">Evaluate on ${fmt.dateY(d.eval_date)} · target metric ${d.metric}</span></div>
+    <div className="row"><${Pill} cls=${(DST[d.status] || DST.Inconclusive)[0]}>${d.status}</${Pill}><span className="sm muted">Evaluate on ${fmt.dateY(d.eval_date)} · target metric ${d.metric}</span></div>
     <dl className="kv"><dt>Change</dt><dd>${d.previous || '—'} → ${d.new || '—'}</dd><dt>Reason</dt><dd>${d.reason}</dd><dt>Expected outcome</dt><dd>${d.hypothesis}</dd>${d.notes ? html`<dt>Notes</dt><dd>${d.notes}</dd>` : null}</dl>
     <${Panel} title="Before / after" sub=${`${ev.w} days before vs ${ev.afterDays} day${ev.afterDays === 1 ? '' : 's'} after`} bodyless>
       ${ev.afterDays < 3 ? html`<div className="bd"><div className="note">Only ${ev.afterDays} day${ev.afterDays === 1 ? '' : 's'} of data after this decision. Wait until at least 3 days (ideally the full evaluation window) before judging.</div></div>` : null}
@@ -504,8 +504,8 @@ function Journal() {
     ${due ? html`<div className="note warn"><b>${due} decision${due > 1 ? 's are' : ' is'} due for evaluation.</b> Open them to compare before and after.</div>` : null}
     <section className="panel"><div className="tabs">${['all', ...Object.keys(DST)].map(k => html`<button key=${k} className=${f === k ? 'on' : ''} onClick=${() => setF(k)}>${k === 'all' ? 'All' : k}<span className="c">${db.decisions.filter(d => (acct === 'all' || d.account_id === acct) && (k === 'all' || d.status === k)).length}</span></button>`)}</div>
       <div className="tl">${list.length ? list.map(d => html`<button key=${d.id} className="tle" onClick=${() => setDrawer({ type: 'decision', id: d.id })}>
-        <div className="when">${fmt.date(d.ts)}<br/><span className="sm">${d.ts.slice(11, 16)}</span></div><div className="rail"><i className=${DST[d.status][1] || 'info'}></i></div>
-        <div className="tlc"><div className="row"><span className="tt">${d.action}</span><${Pill} cls=${DST[d.status][0]}>${d.status}</${Pill}></div>
+        <div className="when">${fmt.date(d.ts)}<br/><span className="sm">${d.ts.slice(11, 16)}</span></div><div className="rail"><i className=${(DST[d.status] || DST.Inconclusive)[1] || 'info'}></i></div>
+        <div className="tlc"><div className="row"><span className="tt">${d.action}</span><${Pill} cls=${(DST[d.status] || DST.Inconclusive)[0]}>${d.status}</${Pill}></div>
           <div className="ln">${accName(M, d.account_id)} · ${entName(M, d.level, d.entity_id)}${d.previous || d.new ? ` · ${d.previous || '—'} → ${d.new || '—'}` : ''}</div>
           <div className="ln"><span className="muted">Reason:</span> ${d.reason}</div><div className="ln"><span className="muted">Expected:</span> ${d.hypothesis} · <span className="muted">evaluate ${fmt.date(d.eval_date)}</span></div></div></button>`)
       : html`<div className="empty">No decisions in this view. Record one when you change budget, pause an ad or launch a test.</div>`}</div></section></div>`;
@@ -677,14 +677,14 @@ function History() {
   const { M, db, acct, setDrawer } = useApp();
   const list = db.imports.filter(i => acct === 'all' || i.account_id === acct || i.account_id === 'all');
   const cols = [{ key: 'imported_at', label: 'Imported', f: fmt.dt, sortv: r => r.imported_at }, { key: 'file', label: 'File', search: true, render: r => html`<button className="link mono" onClick=${() => setDrawer({ type: 'import', id: r.id })}>${r.file}</button>` }, { key: 'acc', label: 'Account', get: r => accName(M, r.account_id), search: true }, { key: 'period', label: 'Period', get: r => fmt.date(r.period[0]) + ' – ' + fmt.date(r.period[1]), sortv: r => r.period[0] },
-    { key: 'new', label: 'New', num: true, f: fmt.int }, { key: 'updated', label: 'Updated', num: true, f: fmt.int }, { key: 'unchanged', label: 'Unchanged', num: true, f: fmt.int }, { key: 'invalid', label: 'Invalid', num: true, f: fmt.int }, { key: 'status', label: 'Status', search: true, render: r => html`<${Pill} cls=${IST[r.status]}>${r.status}</${Pill}>` }];
+    { key: 'new', label: 'New', num: true, f: fmt.int }, { key: 'updated', label: 'Updated', num: true, f: fmt.int }, { key: 'unchanged', label: 'Unchanged', num: true, f: fmt.int }, { key: 'invalid', label: 'Invalid', num: true, f: fmt.int }, { key: 'status', label: 'Status', search: true, render: r => html`<${Pill} cls=${(IST[r.status] || 'p-mute')}>${r.status}</${Pill}>` }];
   return html`<div className="page"><${PageHead} title="Import History" q="Which files built this database?" /><section className="panel"><${DataTable} id="hist" cols=${cols} rows=${list} onRow=${r => setDrawer({ type: 'import', id: r.id })} initialSort=${{ k: 'imported_at', d: -1 }} csvName="import-history" filters=${[{ key: 'st', label: 'Status', options: Object.keys(IST), test: (r, v) => r.status === v }]} /></section></div>`;
 }
 function ImportDrawer({ id, onClose }) {
   const { M, db } = useApp(); const b = db.imports.find(x => x.id === id); if (!b) return null;
-  return html`<${Drawer} title=${b.file} sub=${'Batch ' + b.id} onClose=${onClose}><div className="row"><${Pill} cls=${IST[b.status]}>${b.status}</${Pill}></div>
+  return html`<${Drawer} title=${b.file} sub=${'Batch ' + b.id} onClose=${onClose}><div className="row"><${Pill} cls=${(IST[b.status] || 'p-mute')}>${b.status}</${Pill}></div>
     <dl className="kv"><dt>Imported</dt><dd>${fmt.dt(b.imported_at)}</dd><dt>Account</dt><dd>${accName(M, b.account_id)}</dd><dt>Period</dt><dd>${fmt.dateY(b.period[0])} – ${fmt.dateY(b.period[1])}</dd><dt>New</dt><dd>${b.new}</dd><dt>Updated</dt><dd>${b.updated}</dd><dt>Unchanged</dt><dd>${b.unchanged}</dd><dt>Invalid</dt><dd>${b.invalid}</dd></dl>
-    <div className="sec"><h4>Warnings</h4>${b.warnings.length ? html`<ul className="list">${b.warnings.map((w, i) => html`<li key=${i}>${w}</li>`)}</ul>` : html`<div className="muted sm">None</div>`}</div>
+    <div className="sec"><h4>Warnings</h4>${(b.warnings || []).length ? html`<ul className="list">${(b.warnings || []).map((w, i) => html`<li key=${i}>${w}</li>`)}</ul>` : html`<div className="muted sm">None</div>`}</div>
     <div className="note">Rolling back a batch is not available in the prototype. In production, each batch stores the previous values it overwrote so it can be reverted.</div></${Drawer}>`;
 }
 function qualityChecks(M, db) {
@@ -701,7 +701,7 @@ function qualityChecks(M, db) {
   const today = new Date().toISOString().slice(0, 10); const fresh = db.accounts.map(a => { const last = M.rows.filter(r => r.account_id === a.id).reduce((m, r) => r.date > m ? r.date : m, ''); return { a, last, lag: last ? D.diff(last, today) : 99 }; });
   const stale = fresh.filter(f => f.lag > 2);
   out.push({ sev: stale.length ? 'warn' : 'info', title: 'Data freshness', count: stale.length, detail: stale.length ? 'Accounts more than 2 days behind today.' : 'All accounts updated within 2 days.', items: fresh.map(f => `${f.a.name}: latest ${fmt.dateY(f.last)} (${f.lag} day${f.lag === 1 ? '' : 's'} ago)`) });
-  const iw = db.imports.flatMap(i => i.warnings.map(w => `${i.file}: ${w}`));
+  const iw = (db.imports || []).flatMap(i => (i.warnings || []).map(w => `${i.file}: ${w}`));
   out.push({ sev: iw.length ? 'info' : 'ok', title: 'Import warnings', count: iw.length, detail: 'Warnings recorded during previous imports.', items: iw });
   return out;
 }
