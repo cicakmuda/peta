@@ -593,8 +593,16 @@ function makeSampleImport(M, db) {
 function analyseImport(M, db, json) {
   const errors = [], warnings = [];
   if (!json || typeof json !== 'object') return { fatal: ['File is not a JSON object.'] };
+  const raw = json; let full = false;
+  // Accept a full workspace database (data.json): use its daily rows and its entities.
+  if (!Array.isArray(json.rows) && Array.isArray(json.daily)) { full = true; json = { schema_version: json.schema_version || '1.0', rows: json.daily, entities: { accounts: json.accounts, campaigns: json.campaigns, adsets: json.adsets, ads: json.ads, creatives: json.creatives } }; }
   if (!json.schema_version) errors.push("Missing 'schema_version'.");
-  if (!Array.isArray(json.rows)) return { fatal: ["Missing 'rows' array. Each export must contain rows: [{ date, ad_id, spend, … }]."] };
+  if (!Array.isArray(json.rows)) return { fatal: ["This file has neither 'rows' (daily export) nor 'daily' (full database). Export from Claude using the format shown on the upload screen."] };
+  const ent = json.entities || {}; const newEnt = {};
+  for (const k of ['accounts', 'campaigns', 'adsets', 'ads', 'creatives']) { const have = new Set((db[k] || []).map(x => x.id)); newEnt[k] = (ent[k] || []).filter(x => x && x.id && !have.has(x.id)); }
+  const fileAd = mapBy(ent.ads || []); const adOf = (id) => M.ad[id] || fileAd[id];
+  if (full) { M = { ...M, ad: new Proxy(M.ad, { get: (t, k) => t[k] || fileAd[k] }), acc: { ...M.acc, ...mapBy(ent.accounts || []) } }; }
+  else if (newEnt.ads.length) M = { ...M, ad: new Proxy(M.ad, { get: (t, k) => t[k] || fileAd[k] }), acc: { ...M.acc, ...mapBy(ent.accounts || []) } };
   if (json.account_id && !M.acc[json.account_id]) errors.push(`Unknown account '${json.account_id}'. Add it under Settings → Ad Accounts first.`);
   const acc = json.account_id && M.acc[json.account_id];
   if (acc && json.attribution && json.attribution !== acc.attribution) warnings.push(`Attribution ${json.attribution} differs from the account setting (${acc.attribution}).`);
@@ -604,7 +612,7 @@ function analyseImport(M, db, json) {
     if (!D.valid(r.date)) probs.push('invalid date'); if (!r.ad_id) probs.push('missing ad_id'); else if (!M.ad[r.ad_id]) probs.push(`unknown ad_id ${r.ad_id}`);
     else if (json.account_id && M.ad[r.ad_id].account_id !== json.account_id) probs.push('ad belongs to another account');
     for (const f of FIELDS) { if (r[f] == null) { if (f === 'outbound_clicks') continue; probs.push('missing ' + f); } else if (typeof r[f] !== 'number' || r[f] < 0) probs.push(`${f} must be ≥ 0`); }
-    if (r.purchases > r.initiate_checkout && r.initiate_checkout != null) warnings.push(`Row ${i + 1}: purchases exceed checkouts (allowed, but check attribution).`);
+    if (!full && r.purchases > r.initiate_checkout && r.initiate_checkout != null) warnings.push(`Row ${i + 1}: purchases exceed checkouts (allowed, but check attribution).`);
     if (probs.length) { out.invalid.push({ i: i + 1, r, probs }); return; }
     const k = r.date + '|' + r.ad_id;
     if (inFile.has(k)) { const prev = inFile.get(k); if (FIELDS.some(f => prev[f] !== r[f])) out.conflicts.push({ k, a: prev, b: r }); }
@@ -616,7 +624,7 @@ function analyseImport(M, db, json) {
     else { const diff = FIELDS.filter(f => (ex[f] ?? null) !== (r[f] ?? null)).map(f => ({ f, a: ex[f], b: r[f] })); if (diff.length) { out.updated.push({ r, ex, diff }); if (D.diff(r.date, M.end) > 7) out.revisions.push(k); } else out.unchanged.push(r); }
   }
   const dates = json.rows.map(r => r.date).filter(D.valid).sort();
-  return { errors, warnings: [...new Set(warnings)].slice(0, 8), out, period: json.period || { start: dates[0], end: dates[dates.length - 1] }, account: json.account_id || 'unknown', rowsTotal: json.rows.length };
+  return { errors, warnings: [...new Set(warnings)].slice(0, 8), out, full, raw, newEnt, period: json.period || { start: dates[0], end: dates[dates.length - 1] }, account: json.account_id || 'all', rowsTotal: json.rows.length };
 }
 function ImportPage() {
   const { M, db, setDb, toast, nav } = useApp();
@@ -628,11 +636,16 @@ function ImportPage() {
   const confirm = () => {
     const o = res.out; const latest = new Map(); for (const r of [...o.new, ...o.updated.map(u => u.r)]) latest.set(r.date + '|' + r.ad_id, r);
     setDb(d => { const keep = d.daily.filter(r => !latest.has(r.date + '|' + r.ad_id)); const batch = { id: uid('imp'), imported_at: new Date().toISOString().slice(0, 16), file: file.name, account_id: res.account, period: [res.period.start, res.period.end], new: o.new.length, updated: o.updated.length, unchanged: o.unchanged.length, invalid: o.invalid.length, status: o.invalid.length || res.warnings.length || o.conflicts.length ? 'Completed with warnings' : 'Completed', warnings: [...res.warnings, ...(o.conflicts.length ? [`${o.conflicts.length} conflicting duplicate rows: last value kept`] : []), ...(o.invalid.length ? [`${o.invalid.length} invalid rows skipped`] : [])] };
-      return { ...d, daily: [...keep, ...latest.values()], imports: [batch, ...d.imports] }; });
+      const ne = res.newEnt || {}; const add = (k) => [...(d[k] || []), ...(ne[k] || [])];
+      const targets = { ...d.targets }; if (res.full && res.raw.targets) for (const a of ne.accounts || []) if (res.raw.targets[a.id]) targets[a.id] = res.raw.targets[a.id];
+      return { ...d, accounts: add('accounts'), campaigns: add('campaigns'), adsets: add('adsets'), ads: add('ads'), creatives: add('creatives'), targets, daily: [...keep, ...latest.values()], imports: [batch, ...d.imports] }; });
     setDone({ n: o.new.length, u: o.updated.length, s: o.invalid.length }); setStage('done'); toast('Import applied to your local workspace');
   };
   const reset = () => { setStage('upload'); setFile(null); setRes(null); setDone(null); };
   const o = res && res.out; const blocked = res && (res.fatal || res.errors.length);
+  const entCount = res && res.newEnt ? Object.values(res.newEnt).reduce((s, a) => s + a.length, 0) : 0;
+  const nothing = o && !blocked && !o.new.length && !o.updated.length && !entCount;
+  const replaceDb = () => { setDb(() => res.raw); setDone({ replaced: true }); setStage('done'); toast('Database replaced with ' + file.name); };
   const changeRows = o ? o.updated.flatMap(u => u.diff.map(d => ({ id: u.r.date + u.r.ad_id + d.f, date: u.r.date, ad: u.r.ad_id, name: entName(M, 'ad', u.r.ad_id), f: d.f, a: d.a, b: d.b, rev: D.diff(u.r.date, M.end) > 7 }))) : [];
   return html`<div className="page"><${PageHead} title="Import Data" q="Add a JSON export from Claude to your workspace database." />
     <div className="steps">${['Upload', 'Validate', 'Preview changes', 'Confirm'].map((l, i) => { const idx = { upload: 0, validating: 1, preview: 2, done: 3 }[stage]; return html`<div key=${l} className=${i === idx ? 'on' : i < idx ? 'done' : ''}>${i + 1}. ${l}</div>`; })}</div>
@@ -647,12 +660,14 @@ function ImportPage() {
       <${Panel} title="File" sub=${file.name}><dl className="kv"><dt>Size</dt><dd>${fmt.int(file.size / 1024)} KB</dd>${!res.fatal ? html`<dt>Account</dt><dd>${accName(M, res.account)} <span className="mono muted">${res.account}</span></dd><dt>Reporting period</dt><dd>${fmt.dateY(res.period.start)} – ${fmt.dateY(res.period.end)}</dd><dt>Rows in file</dt><dd>${fmt.int(res.rowsTotal)}</dd><dt>Schema</dt><dd>${res.errors.length ? html`<${Pill} cls="p-bad">Failed</${Pill}>` : html`<${Pill} cls="p-good">Valid · v${res.json.schema_version}</${Pill}>`}</dd>` : null}</dl></${Panel}>
       ${res.fatal || res.errors.length ? html`<div className="note bad"><b>This file cannot be imported.</b><ul className="list" style=${{ marginTop: 4 }}>${(res.fatal || res.errors).map((e, i) => html`<li key=${i}>${e}</li>`)}</ul></div>` : html`
       <div className="kpis k6"><${KPI} label="New records" value=${fmt.int(o.new.length)} /><${KPI} label="Updated" value=${fmt.int(o.updated.length)} /><${KPI} label="Unchanged" value=${fmt.int(o.unchanged.length)} /><${KPI} label="Invalid" value=${html`<span className=${o.invalid.length ? 'd-down' : ''}>${o.invalid.length}</span>`} /><${KPI} label="Conflicts" value=${html`<span className=${o.conflicts.length ? 'd-down' : ''}>${o.conflicts.length}</span>`} /><${KPI} label="Historical revisions" value=${o.revisions.length} target="older than 7 days" targetLabel="" /></div>
+      ${res.full ? html`<div className="note info"><b>Full database file detected.</b> This looks like a complete data.json, not a daily export. Its daily rows will be merged by date + ad_id${entCount ? `, and ${entCount} new accounts, campaigns, ad sets, ads or creatives will be added` : ''}. To swap the whole database instead (including experiments, decisions and settings), use Replace database.</div>` : null}
+      ${nothing ? html`<div className="note"><b>Nothing new to import.</b> Every row in this file already exists in your workspace with the same values.</div>` : null}
       ${res.warnings.length ? html`<div className="note warn"><b>Warnings</b><ul className="list" style=${{ marginTop: 4 }}>${res.warnings.map((w, i) => html`<li key=${i}>${w}</li>`)}</ul></div>` : null}
       <${Panel} title="Changed records" sub=${changeRows.length + ' field changes'} bodyless><${DataTable} id="imp-chg" pageSize=${10} cols=${[{ key: 'date', label: 'Date', f: fmt.dateY, search: true }, { key: 'name', label: 'Ad', search: true, titled: true }, { key: 'f', label: 'Field', render: r => METRICS[r.f] ? METRICS[r.f].label : r.f, search: true }, { key: 'a', label: 'Previous', num: true, f: fmt.int }, { key: 'b', label: 'Incoming', num: true, f: fmt.int }, { key: 'chg', label: 'Change', num: true, get: r => r.b - r.a, render: r => html`<span className=${r.b > r.a ? 'chg-up' : 'chg-dn'}>${r.b > r.a ? '+' : ''}${fmt.int(r.b - r.a)}</span>` }, { key: 'rev', label: 'Type', render: r => r.rev ? html`<${Pill} cls="p-warn">Historical revision</${Pill}>` : html`<${Pill} cls="p-mute">Recent</${Pill}>` }]} rows=${changeRows} empty="No existing records change." /></${Panel}>
       ${o.invalid.length ? html`<${Panel} title="Invalid records" sub="Skipped on import" bodyless><div className="tw"><table className="t"><thead><tr><th className="n">Row</th><th>Date</th><th>Ad</th><th>Problem</th></tr></thead><tbody>${o.invalid.map(x => html`<tr key=${x.i}><td className="n">${x.i}</td><td>${x.r.date || '—'}</td><td className="mono">${x.r.ad_id || '—'}</td><td style=${{ color: 'var(--bad)' }}>${x.probs.join('; ')}</td></tr>`)}</tbody></table></div></${Panel}>` : null}
       ${o.conflicts.length ? html`<${Panel} title="Conflicts" sub="Same date and ad appear twice in the file with different values; the later row wins" bodyless><div className="tw"><table className="t"><thead><tr><th>Key</th><th className="n">First purchases</th><th className="n">Later purchases</th></tr></thead><tbody>${o.conflicts.map(c => html`<tr key=${c.k}><td className="mono">${c.k}</td><td className="n">${c.a.purchases}</td><td className="n">${c.b.purchases}</td></tr>`)}</tbody></table></div></${Panel}>` : null}`}
-      <div className="row end"><button className="btn" onClick=${reset}>Cancel</button><button className="btn pri" disabled=${blocked || !(o && (o.new.length || o.updated.length))} onClick=${confirm}>Confirm import${o && !blocked ? ` (${o.new.length + o.updated.length} records)` : ''}</button></div>` : null}
-    ${stage === 'done' && done ? html`<${Panel} title="Import complete"><div style=${{ display: 'flex', flexDirection: 'column', gap: 10 }}><div>${done.n} new and ${done.u} updated records were written to your local workspace database. ${done.s ? `${done.s} invalid rows were skipped.` : ''}</div><div className="note">The prototype keeps changes in this browser. Export the database from Settings → Preferences to save a new data.json.</div><div className="row"><button className="btn pri" onClick=${() => nav('overview')}>View overview</button><button className="btn" onClick=${() => nav('history')}>Import history</button><button className="btn ghost" onClick=${reset}>Import another file</button></div></div></${Panel}>` : null}
+      <div className="row end"><button className="btn" onClick=${reset}>Cancel</button>${res && res.full && !res.fatal ? html`<button className="btn" onClick=${replaceDb}>Replace database</button>` : null}<button className="btn pri" disabled=${blocked || !(o && (o.new.length || o.updated.length || entCount))} onClick=${confirm}>Confirm import${o && !blocked ? ` (${o.new.length + o.updated.length} records)` : ''}</button></div>` : null}
+    ${stage === 'done' && done ? html`<${Panel} title=${done.replaced ? 'Database replaced' : 'Import complete'}><div style=${{ display: 'flex', flexDirection: 'column', gap: 10 }}><div>${done.replaced ? `Your workspace now uses ${file.name} as its database.` : `${done.n} new and ${done.u} updated records were written to your local workspace database. ${done.s ? `${done.s} invalid rows were skipped.` : ''}`}</div><div className="note">The prototype keeps changes in this browser. Export the database from Settings → Preferences to save a new data.json.</div><div className="row"><button className="btn pri" onClick=${() => nav('overview')}>View overview</button><button className="btn" onClick=${() => nav('history')}>Import history</button><button className="btn ghost" onClick=${reset}>Import another file</button></div></div></${Panel}>` : null}
   </div>`;
 }
 

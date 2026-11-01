@@ -47,6 +47,10 @@ All derived metrics (ROAS, CPA, CPM, CTR, funnel rates) are calculated in the ap
               "clicks": 201, "outbound_clicks": 131, "landing_page_views": 98, "add_to_cart": 14,
               "initiate_checkout": 8, "purchases": 4, "purchase_value": 1188000 } ] }
 ```
-New campaigns/ads must exist in `data.json` before their rows import (the prototype rejects unknown `ad_id`).
+New campaigns/ads must exist in the workspace before their rows import, or be included in the same file under
+`"entities": { "accounts": [], "campaigns": [], "adsets": [], "ads": [], "creatives": [] }`.
+
+Import Data also accepts a full `data.json`: its daily rows are merged by date + ad_id and new entities are added.
+Use **Replace database** on that screen to swap the whole database instead.
 
 All figures in the shipped `data.json` are synthetic demo data.
