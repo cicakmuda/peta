@@ -278,7 +278,7 @@ function LineChart({ series, labels, f = (v) => v, height = 220, refLine, refLab
     ${hi != null ? html`<div className="tip" style=${{ left: Math.min(x(hi) + 10, w - 170), top: 8 }}><div className="muted" style=${{ marginBottom: 3 }}>${labels[hi]}</div>${series.map((s, si) => html`<div key=${si} className="k"><span><i style=${{ display: 'inline-block', width: 8, height: 2, background: s.color, marginRight: 5, verticalAlign: 'middle' }}></i>${s.name}</span><b className="num">${f(s.values[hi])}</b></div>`)}${bars ? html`<div className="k"><span>${bars.name}</span><b className="num">${bars.f(bars.raw ? bars.raw[hi] : bars.values[hi])}</b></div>` : null}</div>` : null}
   </div>`;
 }
-function Spark({ values, w = 72, h = 20, color = 'var(--s1)', ref: refv }) {
+function Spark({ values, w = 72, h = 20, color = 'var(--s1)', target: refv }) {
   const v = values.filter(ok); if (v.length < 2) return html`<span className="muted sm">—</span>`;
   const mx = Math.max(...v, refv || 0) * 1.05, mn = Math.min(...v, refv != null ? refv : Infinity) * 0.95; const n = values.length;
   const x = (i) => 1 + i * (w - 2) / (n - 1), y = (q) => h - 2 - ((q - mn) / (mx - mn || 1)) * (h - 4);

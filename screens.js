@@ -158,7 +158,7 @@ function Decision() {
     { key: 'roas', label: 'ROAS', num: true, get: r => r.m.roas, render: r => roasCell({ m: r.m, t: r.t }) },
     { key: 'troas', label: 'Target', num: true, get: r => r.t.target_roas, f: fmt.x },
     { key: 'cpa', label: 'CPA', num: true, get: r => r.m.cpa, f: fmt.idr },
-    { key: 'trend', label: '7-day ROAS', nosort: true, render: r => html`<span style=${{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><${Spark} values=${r.spark} ref=${r.t.target_roas} color=${r.trend < -0.15 ? 'var(--bad)' : 'var(--s1)'} /><span className=${cx('sm', r.trend < 0 ? 'd-down' : 'd-up')}>${ok(r.trend) ? fmt.sp(r.trend, 0) : ''}</span></span>` },
+    { key: 'trend', label: '7-day ROAS', nosort: true, render: r => html`<span style=${{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><${Spark} values=${r.spark} target=${r.t.target_roas} color=${r.trend < -0.15 ? 'var(--bad)' : 'var(--s1)'} /><span className=${cx('sm', r.trend < 0 ? 'd-down' : 'd-up')}>${ok(r.trend) ? fmt.sp(r.trend, 0) : ''}</span></span>` },
     { key: 'ev', label: 'Evidence', get: r => r.ev, render: r => html`<${Ev} level=${r.ev} />` },
     { key: 'rec', label: 'Recommendation', get: r => r.rec, search: true, sortv: r => Object.keys(REC).indexOf(r.rec), render: r => html`<${Pill} cls=${REC[r.rec]}>${r.rec}</${Pill}>` },
   ];
